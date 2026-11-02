@@ -15,6 +15,24 @@ from ._workflow import Workflow
 
 """Workflow visualization module using graphviz and Mermaid."""
 
+# Flowchart keywords the Mermaid parser rejects as a node or subgraph ID. Matching is case-sensitive,
+# so "End" and "end_node" remain valid IDs.
+_MERMAID_RESERVED_IDS = frozenset({
+    "call",
+    "class",
+    "classDef",
+    "click",
+    "default",
+    "end",
+    "flowchart",
+    "graph",
+    "href",
+    "interpolate",
+    "linkStyle",
+    "style",
+    "subgraph",
+})
+
 
 class WorkflowViz:
     """A class for visualizing workflows using graphviz and Mermaid."""
@@ -386,6 +404,11 @@ class WorkflowViz:
                 )
 
         collect(self._workflow)
+        # Check complete IDs only, since a namespaced ID such as "sub__end" is not a keyword.
+        candidates = {
+            key: f"n_{candidate}" if candidate in _MERMAID_RESERVED_IDS else candidate
+            for key, candidate in candidates.items()
+        }
         reserved = set(candidates.values())
         used: set[str] = set()
         node_ids: dict[tuple[str, ...], str] = {}

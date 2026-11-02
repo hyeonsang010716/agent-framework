@@ -538,6 +538,88 @@ def test_workflow_viz_mermaid_fan_in_id_collision() -> None:
     assert f"{fan_in_ids[0]} --> target;" in mermaid
 
 
+@pytest.mark.parametrize(
+    "executor_id",
+    [
+        "call",
+        "class",
+        "classDef",
+        "click",
+        "default",
+        "end",
+        "flowchart",
+        "graph",
+        "href",
+        "interpolate",
+        "linkStyle",
+        "style",
+        "subgraph",
+    ],
+)
+def test_workflow_viz_mermaid_reserved_executor_id(executor_id: str) -> None:
+    """A Mermaid keyword used as an executor ID gets a parsable alias and keeps its label."""
+    start, reserved, finish = MockExecutor(id="start"), MockExecutor(id=executor_id), MockExecutor(id="finish")
+    workflow = WorkflowBuilder(start_executor=start).add_edge(start, reserved).add_edge(reserved, finish).build()
+    mermaid = WorkflowViz(workflow).to_mermaid()
+
+    assert f'n_{executor_id}["{executor_id}"];' in mermaid
+    assert f"start --> n_{executor_id};" in mermaid
+    assert f"n_{executor_id} --> finish;" in mermaid
+
+
+@pytest.mark.parametrize("executor_id", ["End", "END", "endpoint", "end_node", "classes", "my_style"])
+def test_workflow_viz_mermaid_keyword_like_executor_id_unchanged(executor_id: str) -> None:
+    """Only exact, case-sensitive keyword matches are aliased."""
+    start, executor = MockExecutor(id="start"), MockExecutor(id=executor_id)
+    workflow = WorkflowBuilder(start_executor=start).add_edge(start, executor).build()
+    mermaid = WorkflowViz(workflow).to_mermaid()
+
+    assert f'{executor_id}["{executor_id}"];' in mermaid
+    assert f"start --> {executor_id};" in mermaid
+
+
+def test_workflow_viz_mermaid_reserved_subgraph_ids() -> None:
+    """Top-level and nested wrappers named after Mermaid keywords open parsable subgraphs."""
+    leaf = MockExecutor(id="leaf")
+    inner = WorkflowExecutor(WorkflowBuilder(start_executor=leaf).build(), id="default")
+    outer = WorkflowExecutor(WorkflowBuilder(start_executor=inner).build(), id="end")
+    start = MockExecutor(id="start")
+    workflow = WorkflowBuilder(start_executor=start).add_edge(start, outer).build()
+    mermaid = WorkflowViz(workflow).to_mermaid()
+    subgraphs = re.findall(r"^\s*subgraph ([A-Za-z][A-Za-z0-9_]*)$", mermaid, re.MULTILINE)
+
+    assert subgraphs == ["n_end", "n_default"]
+    assert 'n_end["end"];' in mermaid
+    assert "start --> n_end;" in mermaid
+    assert 'end__default["default (Start)"];' in mermaid
+    assert 'default__leaf["leaf (Start)"];' in mermaid
+
+
+def test_workflow_viz_mermaid_namespaced_keyword_id_unchanged() -> None:
+    """A keyword that is only part of a namespaced ID is already valid and keeps its alias."""
+    source, target = MockExecutor(id="class"), MockExecutor(id="end")
+    wrapper = WorkflowExecutor(WorkflowBuilder(start_executor=source).add_edge(source, target).build(), id="sub")
+    start = MockExecutor(id="start")
+    workflow = WorkflowBuilder(start_executor=start).add_edge(start, wrapper).build()
+    mermaid = WorkflowViz(workflow).to_mermaid()
+
+    assert 'sub__class["class (Start)"];' in mermaid
+    assert 'sub__end["end"];' in mermaid
+    assert "sub__class --> sub__end;" in mermaid
+
+
+def test_workflow_viz_mermaid_reserved_alias_collision() -> None:
+    """A keyword alias cannot take the ID of an ordinary executor already named like it."""
+    start, reserved, ordinary = MockExecutor(id="start"), MockExecutor(id="end"), MockExecutor(id="n_end")
+    workflow = WorkflowBuilder(start_executor=start).add_edge(start, reserved).add_edge(reserved, ordinary).build()
+    mermaid = WorkflowViz(workflow).to_mermaid()
+
+    assert 'n_end["n_end"];' in mermaid
+    assert 'n_end_2["end"];' in mermaid
+    assert "start --> n_end_2;" in mermaid
+    assert "n_end_2 --> n_end;" in mermaid
+
+
 @pytest.mark.parametrize("include_internal_executors", [False, True])
 @pytest.mark.parametrize(
     "executor_ids",
